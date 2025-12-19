@@ -2,6 +2,7 @@ import feedparser, requests, json, os
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
+NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")  
 
 LAST_FILE = "last_seen.json"
 
@@ -11,7 +12,7 @@ RSS_SOURCES = {
     "Astronomy": "https://astronomy.com/rss"
 }
 
-NASA_APOD = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY"
+APOD_URL = f"https://api.nasa.gov/planetary/apod?api_key={NASA_API_KEY}"
 SPACEX = "https://api.spacexdata.com/v4/launches/latest"
 
 def load_seen():
