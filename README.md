@@ -77,6 +77,5 @@ Click the **Fork** button at the top right of this repo → Create your own copy
 Edit `.github/workflows/run.yml`:
 
 ```yaml
-- cron: "0 */2 * * *" # Change to your preferred frequency Examples:(Every hour: 0 * * * *,      Every 4 hours: 0 */4 * * *, Once daily: 0 0 * * *
-
+- cron: "0 */2 * * *" # Change to your preferred frequency Examples:(Every hour: 0 * * * *, Every 4 hours: 0 */4 * * *, Once daily: 0 0 * * *
 ```
