@@ -1,5 +1,9 @@
-import feedparser, requests, json, os
+import feedparser
+import requests
+import json
+import os
 
+# Secrets from GitHub
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")  
@@ -7,67 +11,131 @@ NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")
 LAST_FILE = "last_seen.json"
 
 RSS_SOURCES = {
-    "NASA Breaking": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
-    "ESA": "https://www.esa.int/rssfeed/Our_Activities",
-    "Astronomy": "https://astronomy.com/rss"
+    "NASA Breaking News": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+    "ESA News": "https://www.esa.int/rssfeed/Our_Activities",
+    "Astronomy.com": "https://astronomy.com/rss"
 }
 
 APOD_URL = f"https://api.nasa.gov/planetary/apod?api_key={NASA_API_KEY}"
-SPACEX = "https://api.spacexdata.com/v4/launches/latest"
+SPACEX_URL = "https://api.spacexdata.com/v4/launches/latest"
 
 def load_seen():
-    return json.load(open(LAST_FILE)) if os.path.exists(LAST_FILE) else {}
+    if os.path.exists(LAST_FILE):
+        try:
+            with open(LAST_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
 
 def save_seen(data):
-    json.dump(data, open(LAST_FILE, "w"))
+    with open(LAST_FILE, "w") as f:
+        json.dump(data, f)
 
-def send(text, image=None):
-    if image:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        payload = {"chat_id": CHAT_ID, "caption": text, "photo": image, "parse_mode": "Markdown"}
-    else:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
-    requests.post(url, json=payload)
+def send_message(text, photo=None):
+    try:
+        if photo:
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                json={
+                    "chat_id": CHAT_ID,
+                    "photo": photo,
+                    "caption": text,
+                    "parse_mode": "Markdown"
+                }
+            )
+        else:
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": CHAT_ID,
+                    "text": text,
+                    "parse_mode": "Markdown"
+                }
+            )
+        print(f"Sent: {text[:60]}...")
+    except Exception as e:
+        print(f"Telegram send error: {e}")
 
 def process_rss(name, url, seen):
-    feed = feedparser.parse(url)
-    for item in feed.entries[:3]:
-        uid = item.link
+    try:
+        feed = feedparser.parse(url)
+        if not feed.entries:
+            return
+        for entry in feed.entries[:5]:
+            uid = entry.link
+            if uid in seen:
+                continue
+
+            image = None
+            if hasattr(entry, "media_content") and entry.media_content:
+                for media in entry.media_content:
+                    if media.get("medium") == "image":
+                        image = media["url"]
+                        break
+
+            title = entry.title
+            summary = getattr(entry, "summary", "")
+            link = entry.link
+
+            msg = f"🚀 *{name}*\n\n*{title}*\n\n{summary[:400]}...\n\n🔗 [Read more]({link})"
+            send_message(msg, image)
+            seen[uid] = True
+    except Exception as e:
+        print(f"RSS error ({name}): {e}")
+
+def check_apod(seen):
+    try:
+        data = requests.get(APOD_URL).json()  # ← FIXED: was NASA_APOD
+        uid = data["date"]
         if uid in seen:
-            continue
+            return
 
-        image = None
-        if "media_content" in item:
-            image = item.media_content[0]["url"]
+        title = data["title"]
+        explanation = data["explanation"]
+        url = data["url"]
+        hdurl = data.get("hdurl", url)
 
-        msg = f"🚀 *{name}*\n\n🛰 *{item.title}*\n\n{item.summary[:300]}...\n\n🔗 {item.link}"
-        send(msg, image)
+        msg = f"🌌 *NASA Astronomy Picture of the Day*\n\n*{title}*\n\n{explanation[:500]}...\n\n🔗 [Full Image]({hdurl})"
+
+        if data["media_type"] == "image":
+            send_message(msg, url)
+        else:
+            send_message(msg + f"\n\n🎥 [Watch Video]({url})")
+
         seen[uid] = True
+    except Exception as e:
+        print(f"APOD error: {e}")
 
-def apod(seen):
-    data = requests.get(NASA_APOD).json()
-    if data["date"] in seen:
-        return
-    send(f"🌌 *NASA APOD*\n\n🛰 *{data['title']}*\n\n{data['explanation'][:300]}...\n\n🔗 {data['url']}",
-         data["url"] if data["media_type"] == "image" else None)
-    seen[data["date"]] = True
+def check_spacex(seen):
+    try:
+        data = requests.get(SPACEX_URL).json()
+        uid = data["id"]
+        if uid in seen:
+            return
 
-def spacex(seen):
-    data = requests.get(SPACEX).json()
-    if data["id"] in seen:
-        return
-    send(f"🚀 *SpaceX Launch*\n\n🛰 *{data['name']}*\n\n📅 {data['date_utc']}\n🔗 {data['links']['webcast']}",
-         data["links"]["patch"]["large"])
-    seen[data["id"]] = True
+        name = data["name"]
+        date = data["date_utc"][:10]
+        webcast = data["links"].get("webcast", "No link")
+        patch = data["links"]["patch"].get("small") or data["links"]["patch"].get("large")
 
-def main():
+        msg = f"🚀 *Latest SpaceX Mission*\n\n*{name}*\n\n📅 {date}\n🔗 [Watch]({webcast})"
+        send_message(msg, patch)
+
+        seen[uid] = True
+    except Exception as e:
+        print(f"SpaceX error: {e}")
+
+# === MAIN ===
+if __name__ == "__main__":
+    print("Starting space news update...")
     seen = load_seen()
+
     for name, url in RSS_SOURCES.items():
         process_rss(name, url, seen)
-    apod(seen)
-    spacex(seen)
+
+    check_apod(seen)
+    check_spacex(seen)
+
     save_seen(seen)
-
-main()
-
+    print("Update complete!")
